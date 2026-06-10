@@ -153,19 +153,19 @@
         <input id="years" type="number" min="0" step="0.5" placeholder="0" />
       </div>
       <div class="field">
-        <label for="rate">Pay per hour ($)</label>
-        <input id="rate" type="number" min="0" step="0.01" placeholder="0.00" required />
+        <label for="daily">Daily pay / salary ($)</label>
+        <input id="daily" type="number" min="0" step="0.01" placeholder="0.00" required />
       </div>
       <div class="field">
-        <label for="hours">Hours / week</label>
-        <input id="hours" type="number" min="0" step="0.5" placeholder="40" />
+        <label for="days">Days / week</label>
+        <input id="days" type="number" min="0" max="7" step="0.5" placeholder="5" />
       </div>
       <div class="toolbar">
         <button type="submit" class="btn-primary" id="submitBtn">Add driver</button>
         <button type="button" class="btn-ghost" id="cancelBtn" style="display:none;">Cancel</button>
       </div>
     </form>
-    <p class="note">Monthly = yearly ÷ 12. Yearly projection = weekly pay × 52 weeks at the current rate. Data is saved in this browser on this computer.</p>
+    <p class="note">Weekly = daily pay × days/week. Yearly projection = weekly pay × 52 weeks at the current daily rate. Monthly = yearly ÷ 12. Data is saved in this browser on this computer.</p>
   </div>
 
   <!-- Table -->
@@ -191,8 +191,8 @@
           <th class="check"><input type="checkbox" id="selectAll" title="Select all" /></th>
           <th>Name</th>
           <th class="num">Yrs of service</th>
-          <th class="num">Rate / hr</th>
-          <th class="num">Hrs / wk</th>
+          <th class="num">Daily pay</th>
+          <th class="num">Days / wk</th>
           <th class="num">Weekly</th>
           <th class="num">Monthly</th>
           <th class="num">Yearly (proj.)</th>
@@ -216,8 +216,19 @@
 
   // --- persistence ---
   function load() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    let list;
+    try { list = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
     catch { return []; }
+    // migrate old hourly records (rate/hours) to daily salary, preserving weekly pay
+    for (const d of list) {
+      if (d.daily === undefined && d.rate !== undefined) {
+        const weekly = (Number(d.rate) || 0) * (Number(d.hours) || 0);
+        d.days = 5;
+        d.daily = d.days ? weekly / d.days : 0;
+        delete d.rate; delete d.hours;
+      }
+    }
+    return list;
   }
   function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(drivers));
@@ -227,7 +238,7 @@
   const money = n => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const num = n => (Number(n) || 0);
   function calc(d) {
-    const weekly = num(d.rate) * num(d.hours);
+    const weekly = num(d.daily) * num(d.days);
     const yearly = weekly * WEEKS_PER_YEAR;
     return { weekly, monthly: yearly / 12, yearly };
   }
@@ -240,8 +251,8 @@
   const els = {
     name: document.getElementById("name"),
     years: document.getElementById("years"),
-    rate: document.getElementById("rate"),
-    hours: document.getElementById("hours"),
+    daily: document.getElementById("daily"),
+    days: document.getElementById("days"),
     submitBtn: document.getElementById("submitBtn"),
     cancelBtn: document.getElementById("cancelBtn"),
     formTitle: document.getElementById("formTitle"),
@@ -270,8 +281,8 @@
           <td class="check"><input type="checkbox" data-sel="${d.id}" ${isSel ? "checked" : ""} /></td>
           <td>${escapeHtml(d.name)}</td>
           <td class="num">${num(d.years)}</td>
-          <td class="num">${money(d.rate)}</td>
-          <td class="num">${num(d.hours)}</td>
+          <td class="num">${money(d.daily)}</td>
+          <td class="num">${num(d.days)}</td>
           <td class="num">${money(c.weekly)}</td>
           <td class="num">${money(c.monthly)}</td>
           <td class="num">${money(c.yearly)}</td>
@@ -324,10 +335,10 @@
     const data = {
       name: els.name.value.trim(),
       years: num(els.years.value),
-      rate: num(els.rate.value),
-      hours: els.hours.value === "" ? 40 : num(els.hours.value),
+      daily: num(els.daily.value),
+      days: els.days.value === "" ? 5 : num(els.days.value),
     };
-    if (!data.name || data.rate <= 0) return;
+    if (!data.name || data.daily <= 0) return;
 
     if (editingId) {
       const d = drivers.find(x => x.id === editingId);
@@ -371,8 +382,8 @@
     editingId = id;
     els.name.value = d.name;
     els.years.value = d.years;
-    els.rate.value = d.rate;
-    els.hours.value = d.hours;
+    els.daily.value = d.daily;
+    els.days.value = d.days;
     els.submitBtn.textContent = "Save changes";
     els.cancelBtn.style.display = "inline-block";
     els.formTitle.textContent = "Edit driver";
@@ -416,10 +427,10 @@
   // --- export CSV ---
   function exportCSV(list, filename) {
     if (!list.length) return;
-    const rows = [["Name", "Years of Service", "Pay per Hour", "Hours per Week", "Weekly", "Monthly", "Yearly (projected)"]];
+    const rows = [["Name", "Years of Service", "Daily Pay", "Days per Week", "Weekly", "Monthly", "Yearly (projected)"]];
     for (const d of list) {
       const c = calc(d);
-      rows.push([d.name, num(d.years), num(d.rate), num(d.hours), c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
+      rows.push([d.name, num(d.years), num(d.daily), num(d.days), c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
     }
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -443,8 +454,8 @@
       return {
         "Name": d.name,
         "Years of Service": num(d.years),
-        "Pay per Hour": num(d.rate),
-        "Hours per Week": num(d.hours),
+        "Daily Pay": num(d.daily),
+        "Days per Week": num(d.days),
         "Weekly": +c.weekly.toFixed(2),
         "Monthly": +c.monthly.toFixed(2),
         "Yearly (projected)": +c.yearly.toFixed(2),
@@ -455,7 +466,7 @@
       const c = calc(d); a.w += c.weekly; a.m += c.monthly; a.y += c.yearly; return a;
     }, { w: 0, m: 0, y: 0 });
     rows.push({
-      "Name": "TOTALS", "Years of Service": "", "Pay per Hour": "", "Hours per Week": "",
+      "Name": "TOTALS", "Years of Service": "", "Daily Pay": "", "Days per Week": "",
       "Weekly": +t.w.toFixed(2), "Monthly": +t.m.toFixed(2), "Yearly (projected)": +t.y.toFixed(2),
     });
     const ws = XLSX.utils.json_to_sheet(rows);
