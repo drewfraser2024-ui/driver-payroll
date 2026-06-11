@@ -61,6 +61,8 @@
   form { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 12px; align-items: end; }
   .field { display: flex; flex-direction: column; gap: 5px; }
   .field label { font-size: 12px; color: var(--muted); }
+  .dual { display: flex; gap: 6px; }
+  .dual input { text-align: center; }
   input {
     background: var(--panel-2);
     border: 1px solid var(--line);
@@ -150,7 +152,10 @@
       </div>
       <div class="field">
         <label for="years">Years of service</label>
-        <input id="years" type="number" min="0" step="0.5" placeholder="0" />
+        <div class="dual">
+          <input id="years" type="number" min="0" step="1" placeholder="Yr" aria-label="Years of service" title="Years" />
+          <input id="months" type="number" min="0" max="11" step="1" placeholder="Mo" aria-label="Months of service" title="Months (0-11)" />
+        </div>
       </div>
       <div class="field">
         <label for="daily">Daily pay / salary ($)</label>
@@ -190,7 +195,7 @@
         <tr>
           <th class="check"><input type="checkbox" id="selectAll" title="Select all" /></th>
           <th>Name</th>
-          <th class="num">Yrs of service</th>
+          <th class="num">Service</th>
           <th class="num">Daily pay</th>
           <th class="num">Days / wk</th>
           <th class="num">Weekly</th>
@@ -227,6 +232,13 @@
         d.daily = d.days ? weekly / d.days : 0;
         delete d.rate; delete d.hours;
       }
+      // split a decimal "years of service" (e.g. 1.5) into whole years + months
+      if (d.months === undefined) {
+        const y = Number(d.years) || 0;
+        d.years = Math.floor(y);
+        d.months = Math.round((y - d.years) * 12);
+        if (d.months === 12) { d.years += 1; d.months = 0; }
+      }
     }
     return list;
   }
@@ -243,6 +255,13 @@
     return { weekly, monthly: yearly / 12, yearly };
   }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function formatService(d) {
+    const y = num(d.years), m = num(d.months);
+    const parts = [];
+    if (y) parts.push(y + " yr");
+    if (m) parts.push(m + " mo");
+    return parts.length ? parts.join(" ") : "0";
+  }
 
   // --- DOM refs ---
   const form = document.getElementById("driverForm");
@@ -251,6 +270,7 @@
   const els = {
     name: document.getElementById("name"),
     years: document.getElementById("years"),
+    months: document.getElementById("months"),
     daily: document.getElementById("daily"),
     days: document.getElementById("days"),
     submitBtn: document.getElementById("submitBtn"),
@@ -280,7 +300,7 @@
         tr.innerHTML = `
           <td class="check"><input type="checkbox" data-sel="${d.id}" ${isSel ? "checked" : ""} /></td>
           <td>${escapeHtml(d.name)}</td>
-          <td class="num">${num(d.years)}</td>
+          <td class="num">${formatService(d)}</td>
           <td class="num">${money(d.daily)}</td>
           <td class="num">${num(d.days)}</td>
           <td class="num">${money(c.weekly)}</td>
@@ -334,7 +354,8 @@
     e.preventDefault();
     const data = {
       name: els.name.value.trim(),
-      years: num(els.years.value),
+      years: Math.floor(num(els.years.value)) + Math.floor(num(els.months.value) / 12),
+      months: Math.floor(num(els.months.value)) % 12,
       daily: num(els.daily.value),
       days: els.days.value === "" ? 5 : num(els.days.value),
     };
@@ -382,6 +403,7 @@
     editingId = id;
     els.name.value = d.name;
     els.years.value = d.years;
+    els.months.value = d.months;
     els.daily.value = d.daily;
     els.days.value = d.days;
     els.submitBtn.textContent = "Save changes";
@@ -430,7 +452,7 @@
     const rows = [["Name", "Years of Service", "Daily Pay", "Days per Week", "Weekly", "Monthly", "Yearly (projected)"]];
     for (const d of list) {
       const c = calc(d);
-      rows.push([d.name, num(d.years), num(d.daily), num(d.days), c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
+      rows.push([d.name, formatService(d), num(d.daily), num(d.days), c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
     }
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -453,7 +475,7 @@
       const c = calc(d);
       return {
         "Name": d.name,
-        "Years of Service": num(d.years),
+        "Years of Service": formatService(d),
         "Daily Pay": num(d.daily),
         "Days per Week": num(d.days),
         "Weekly": +c.weekly.toFixed(2),
