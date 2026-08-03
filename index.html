@@ -107,9 +107,17 @@
   .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
   .btn-edit { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
 
+  /* Segmented pay-basis toggle */
+  .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; align-self: start; }
+  .segmented button { background: var(--panel-2); color: var(--muted); border-radius: 0; padding: 9px 16px; font-size: 13px; font-weight: 600; }
+  .segmented button:hover { filter: none; color: var(--text); }
+  .segmented button + button { border-left: 1px solid var(--line); }
+  .segmented button.active { background: var(--accent-strong); color: #04121d; }
+
   /* Table */
   .table-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
   .table-head h2 { margin: 0; font-size: 16px; }
+  .table-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); font-size: 14px; }
   th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
@@ -120,6 +128,7 @@
   .empty { text-align: center; color: var(--muted); padding: 36px 10px; }
   .actions { display: flex; gap: 6px; justify-content: flex-end; }
   .toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--accent); background: rgba(14,165,233,0.10); }
 
   /* Checkboxes + bulk bar */
   input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent-strong); cursor: pointer; }
@@ -168,8 +177,14 @@
   const money = n => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const num = n => (Number(n) || 0);
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  const basisLabel = b => (b === "weekly" ? "Weekly" : "Yearly");
+
+  // Weekly/monthly/yearly from whichever pay model the record uses.
   function calc(d) {
-    const weekly = num(d.daily) * num(d.days);
+    let weekly;
+    if (d.basis === "weekly") weekly = num(d.amount);
+    else if (d.basis === "yearly") weekly = num(d.amount) / WEEKS_PER_YEAR;
+    else weekly = num(d.daily) * num(d.days); // daily model (drivers)
     const yearly = weekly * WEEKS_PER_YEAR;
     return { weekly, monthly: yearly / 12, yearly };
   }
@@ -206,23 +221,69 @@
 
   // --- payroll board factory ---
   function createPayroll(cfg) {
-    const { mount, storageKey, formTitle, countLabel, hasTitle, fileBase, seed } = cfg;
-    const colspan = hasTitle ? 10 : 9;
+    const { mount, storageKey, formTitle, countLabel, hasTitle, mode, fileBase, seed } = cfg;
+    const salary = mode === "salary";
+    const colspan = 9 + (hasTitle ? 1 : 0);
 
     let items = load();
     let editingId = null;
+    let formBasis = "yearly"; // salary mode only
     const selected = new Set();
+    if (salary) save(); // persist any legacy→salary migration
 
     function load() {
       let list = null;
       try { list = JSON.parse(localStorage.getItem(storageKey)); } catch { list = null; }
       if (list === null) {
-        list = (seed || []).map(s => ({ id: uid(), years: 0, months: 0, daily: 0, days: 5, title: "", ...s }));
+        const base = salary
+          ? { years: 0, months: 0, basis: "yearly", amount: 0, title: "" }
+          : { years: 0, months: 0, daily: 0, days: 5, title: "" };
+        list = (seed || []).map(s => ({ id: uid(), ...base, ...s }));
         if (seed && seed.length) localStorage.setItem(storageKey, JSON.stringify(list));
       }
-      return migrate(list, hasTitle);
+      migrate(list, hasTitle);
+      if (salary) {
+        // convert any legacy daily-model records to a salary basis
+        for (const d of list) {
+          if (d.basis === undefined) {
+            const wk = num(d.daily) * num(d.days);
+            if (wk > 0) { d.basis = "weekly"; d.amount = wk; }
+            else { d.basis = "yearly"; d.amount = num(d.amount) || 0; }
+          }
+          if (d.amount === undefined) d.amount = 0;
+        }
+      }
+      return list;
     }
     function save() { localStorage.setItem(storageKey, JSON.stringify(items)); }
+
+    // --- pay-model specific markup ---
+    const payFormFields = salary ? `
+          <div class="field">
+            <label>Pay basis</label>
+            <div class="segmented" data-basis-toggle>
+              <button type="button" data-basis="weekly">Weekly</button>
+              <button type="button" data-basis="yearly">Yearly</button>
+            </div>
+          </div>
+          <div class="field">
+            <label data-amount-label>Yearly salary ($)</label>
+            <input class="f-amount" type="number" min="0" step="0.01" placeholder="0.00" required />
+          </div>` : `
+          <div class="field">
+            <label>Daily pay / salary ($)</label>
+            <input class="f-daily" type="number" min="0" step="0.01" placeholder="0.00" required />
+          </div>
+          <div class="field">
+            <label>Days / week</label>
+            <input class="f-days" type="number" min="0" max="7" step="0.5" placeholder="5" />
+          </div>`;
+    const payHeaders = salary
+      ? `<th>Pay basis</th><th class="num">Rate</th>`
+      : `<th class="num">Daily pay</th><th class="num">Days / wk</th>`;
+    const note = salary
+      ? "Enter each person's pay as a weekly or yearly salary — click the basis to switch. Weekly, monthly, and yearly totals are calculated from it. Data is saved in this browser on this computer."
+      : "Weekly = daily pay × days/week. Yearly projection = weekly pay × 52 weeks. Monthly = yearly ÷ 12. Data is saved in this browser on this computer.";
 
     // --- markup ---
     mount.innerHTML = `
@@ -252,20 +313,13 @@
               <input class="f-months" type="number" min="0" max="11" step="1" placeholder="Mo" aria-label="Months of service" title="Months (0-11)" />
             </div>
           </div>
-          <div class="field">
-            <label>Daily pay / salary ($)</label>
-            <input class="f-daily" type="number" min="0" step="0.01" placeholder="0.00" required />
-          </div>
-          <div class="field">
-            <label>Days / week</label>
-            <input class="f-days" type="number" min="0" max="7" step="0.5" placeholder="5" />
-          </div>
+          ${payFormFields}
           <div class="toolbar">
             <button type="submit" class="btn-primary" data-submit>${formTitle.add}</button>
             <button type="button" class="btn-ghost" data-cancel style="display:none;">Cancel</button>
           </div>
         </form>
-        <p class="note">Weekly = daily pay × days/week. Yearly projection = weekly pay × 52 weeks. Monthly = yearly ÷ 12. Data is saved in this browser on this computer.</p>
+        <p class="note">${note}</p>
       </div>
 
       <div class="panel">
@@ -284,6 +338,7 @@
           <button type="button" class="btn-ghost" data-bulk-csv>Export selected (CSV)</button>
           <button type="button" class="btn-danger" data-bulk-del>Delete selected</button>
         </div>
+        <div class="table-scroll">
         <table>
           <thead>
             <tr>
@@ -291,8 +346,7 @@
               <th>Name</th>
               ${hasTitle ? `<th>Title / role</th>` : ``}
               <th class="num">Service</th>
-              <th class="num">Daily pay</th>
-              <th class="num">Days / wk</th>
+              ${payHeaders}
               <th class="num">Weekly</th>
               <th class="num">Monthly</th>
               <th class="num">Yearly (proj.)</th>
@@ -302,6 +356,7 @@
           <tbody data-tbody></tbody>
           <tfoot data-tfoot></tfoot>
         </table>
+        </div>
       </div>`;
 
     // --- scoped refs ---
@@ -314,14 +369,37 @@
       title: hasTitle ? q(".f-title") : null,
       years: q(".f-years"),
       months: q(".f-months"),
-      daily: q(".f-daily"),
-      days: q(".f-days"),
+      daily: salary ? null : q(".f-daily"),
+      days: salary ? null : q(".f-days"),
+      amount: salary ? q(".f-amount") : null,
       submitBtn: q("[data-submit]"),
       cancelBtn: q("[data-cancel]"),
       formTitleEl: q("[data-form-title]"),
     };
 
+    // --- pay-basis toggle (salary mode) ---
+    function setBasis(b) {
+      formBasis = b;
+      if (!salary) return;
+      for (const btn of mount.querySelectorAll("[data-basis-toggle] button"))
+        btn.classList.toggle("active", btn.getAttribute("data-basis") === b);
+      const lbl = q("[data-amount-label]");
+      if (lbl) lbl.textContent = b === "weekly" ? "Weekly salary ($)" : "Yearly salary ($)";
+    }
+    if (salary) {
+      q("[data-basis-toggle]").addEventListener("click", e => {
+        const b = e.target.getAttribute("data-basis");
+        if (b) setBasis(b);
+      });
+      setBasis(formBasis);
+    }
+
     // --- render ---
+    function payCells(d) {
+      return salary
+        ? `<td><span class="pill">${basisLabel(d.basis)}</span></td><td class="num">${money(d.amount)}</td>`
+        : `<td class="num">${money(d.daily)}</td><td class="num">${num(d.days)}</td>`;
+    }
     function render() {
       const ids = new Set(items.map(d => d.id));
       for (const id of [...selected]) if (!ids.has(id)) selected.delete(id);
@@ -344,8 +422,7 @@
             <td>${escapeHtml(d.name)}</td>
             ${hasTitle ? `<td>${escapeHtml(d.title || "")}</td>` : ``}
             <td class="num">${formatService(d)}</td>
-            <td class="num">${money(d.daily)}</td>
-            <td class="num">${num(d.days)}</td>
+            ${payCells(d)}
             <td class="num">${money(c.weekly)}</td>
             <td class="num">${money(c.monthly)}</td>
             <td class="num">${money(c.yearly)}</td>
@@ -394,11 +471,17 @@
         name: els.name.value.trim(),
         years: Math.floor(num(els.years.value)) + Math.floor(num(els.months.value) / 12),
         months: Math.floor(num(els.months.value)) % 12,
-        daily: num(els.daily.value),
-        days: els.days.value === "" ? 5 : num(els.days.value),
       };
       if (hasTitle) data.title = els.title.value.trim();
-      if (!data.name || data.daily <= 0) return;
+      if (salary) {
+        data.basis = formBasis;
+        data.amount = num(els.amount.value);
+      } else {
+        data.daily = num(els.daily.value);
+        data.days = els.days.value === "" ? 5 : num(els.days.value);
+      }
+      const payValue = salary ? data.amount : data.daily;
+      if (!data.name || payValue <= 0) return;
 
       if (editingId) {
         const d = items.find(x => x.id === editingId);
@@ -410,6 +493,7 @@
       save();
       render();
       form.reset();
+      if (salary) setBasis("yearly");
       els.name.focus();
     });
 
@@ -444,8 +528,13 @@
       if (hasTitle) els.title.value = d.title || "";
       els.years.value = d.years;
       els.months.value = d.months;
-      els.daily.value = d.daily;
-      els.days.value = d.days;
+      if (salary) {
+        setBasis(d.basis || "yearly");
+        els.amount.value = d.amount;
+      } else {
+        els.daily.value = d.daily;
+        els.days.value = d.days;
+      }
       els.submitBtn.textContent = "Save changes";
       els.cancelBtn.style.display = "inline-block";
       els.formTitleEl.textContent = formTitle.edit;
@@ -458,6 +547,7 @@
       els.cancelBtn.style.display = "none";
       els.formTitleEl.textContent = formTitle.add;
       form.reset();
+      if (salary) setBasis("yearly");
     }
     els.cancelBtn.addEventListener("click", exitEdit);
 
@@ -489,11 +579,13 @@
     // --- export CSV ---
     function exportCSV(list, filename) {
       if (!list.length) return;
-      const header = ["Name", ...(hasTitle ? ["Title / role"] : []), "Years of Service", "Daily Pay", "Days per Week", "Weekly", "Monthly", "Yearly (projected)"];
+      const payHead = salary ? ["Pay Basis", "Rate"] : ["Daily Pay", "Days per Week"];
+      const header = ["Name", ...(hasTitle ? ["Title / role"] : []), "Years of Service", ...payHead, "Weekly", "Monthly", "Yearly (projected)"];
       const rows = [header];
       for (const d of list) {
         const c = calc(d);
-        rows.push([d.name, ...(hasTitle ? [d.title || ""] : []), formatService(d), num(d.daily), num(d.days), c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
+        const payVals = salary ? [basisLabel(d.basis), num(d.amount)] : [num(d.daily), num(d.days)];
+        rows.push([d.name, ...(hasTitle ? [d.title || ""] : []), formatService(d), ...payVals, c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
       }
       const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv" });
@@ -514,12 +606,14 @@
       }
       const rows = list.map(d => {
         const c = calc(d);
+        const payCols = salary
+          ? { "Pay Basis": basisLabel(d.basis), "Rate": +num(d.amount).toFixed(2) }
+          : { "Daily Pay": num(d.daily), "Days per Week": num(d.days) };
         return {
           "Name": d.name,
           ...(hasTitle ? { "Title / role": d.title || "" } : {}),
           "Years of Service": formatService(d),
-          "Daily Pay": num(d.daily),
-          "Days per Week": num(d.days),
+          ...payCols,
           "Weekly": +c.weekly.toFixed(2),
           "Monthly": +c.monthly.toFixed(2),
           "Yearly (projected)": +c.yearly.toFixed(2),
@@ -528,8 +622,9 @@
       const t = list.reduce((a, d) => {
         const c = calc(d); a.w += c.weekly; a.m += c.monthly; a.y += c.yearly; return a;
       }, { w: 0, m: 0, y: 0 });
+      const payTotals = salary ? { "Pay Basis": "", "Rate": "" } : { "Daily Pay": "", "Days per Week": "" };
       rows.push({
-        "Name": "TOTALS", ...(hasTitle ? { "Title / role": "" } : {}), "Years of Service": "", "Daily Pay": "", "Days per Week": "",
+        "Name": "TOTALS", ...(hasTitle ? { "Title / role": "" } : {}), "Years of Service": "", ...payTotals,
         "Weekly": +t.w.toFixed(2), "Monthly": +t.m.toFixed(2), "Yearly (projected)": +t.y.toFixed(2),
       });
       const ws = XLSX.utils.json_to_sheet(rows);
@@ -543,23 +638,25 @@
     render();
   }
 
-  // --- drivers board (existing data preserved) ---
+  // --- drivers board (daily pay model) ---
   createPayroll({
     mount: document.getElementById("board-drivers"),
     storageKey: "driver_payroll_v1",
     countLabel: "Drivers",
     formTitle: { add: "Add a driver", edit: "Edit driver" },
     hasTitle: false,
+    mode: "daily",
     fileBase: "driver_payroll",
   });
 
-  // --- management & back office board (seeded roster) ---
+  // --- management & back office board (weekly/yearly salary model, seeded roster) ---
   createPayroll({
     mount: document.getElementById("board-staff"),
     storageKey: "staff_payroll_v1",
     countLabel: "Management & Back Office",
     formTitle: { add: "Add a staff member", edit: "Edit staff member" },
     hasTitle: true,
+    mode: "salary",
     fileBase: "management_backoffice_payroll",
     seed: [
       { name: "Camille Harris", title: "BC" },
