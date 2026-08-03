@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Driver Payroll Bookkeeping</title>
+<title>Payroll Bookkeeping</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
   :root {
@@ -37,6 +37,24 @@
   header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
 
+  /* Tabs */
+  .tabs { display: flex; gap: 8px; max-width: 1100px; margin: 20px auto 0; padding: 0 24px; flex-wrap: wrap; }
+  .tab {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-bottom: none;
+    color: var(--muted);
+    border-radius: 10px 10px 0 0;
+    padding: 11px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--panel-2); color: var(--text); border-color: var(--accent-strong); }
+  .board { display: none; }
+  .board.active { display: block; }
+
   /* Summary cards */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 26px; }
   .card {
@@ -58,8 +76,9 @@
     margin-bottom: 26px;
   }
   .panel h2 { margin: 0 0 16px; font-size: 16px; }
-  form { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 12px; align-items: end; }
-  .field { display: flex; flex-direction: column; gap: 5px; }
+  form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 5px; flex: 1 1 150px; }
+  .field.name { flex: 2 1 200px; }
   .field label { font-size: 12px; color: var(--muted); }
   .dual { display: flex; gap: 6px; }
   .dual input { text-align: center; }
@@ -89,7 +108,7 @@
   .btn-edit { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
 
   /* Table */
-  .table-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .table-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
   .table-head h2 { margin: 0; font-size: 16px; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -122,110 +141,51 @@
 
   .note { color: var(--muted); font-size: 12px; margin-top: 14px; }
   @media (max-width: 720px) {
-    form { grid-template-columns: 1fr 1fr; }
     .actions { flex-direction: column; }
   }
 </style>
 </head>
 <body>
 <header>
-  <h1>🚚 Driver Payroll Bookkeeping</h1>
-  <p>Track what you pay each driver — weekly, monthly, and projected yearly — from their current hourly rate.</p>
+  <h1>💼 Payroll Bookkeeping</h1>
+  <p>Separate payrolls for drivers and for management &amp; back office — weekly, monthly, and projected yearly pay.</p>
 </header>
 
+<div class="tabs" id="tabs">
+  <button type="button" class="tab active" data-tab="drivers">🚚 Drivers</button>
+  <button type="button" class="tab" data-tab="staff">🧑‍💼 Management &amp; Back Office</button>
+</div>
+
 <div class="wrap">
-  <!-- Summary cards -->
-  <div class="cards">
-    <div class="card"><div class="label">Drivers</div><div class="value" id="sumCount">0</div></div>
-    <div class="card"><div class="label">Total Weekly</div><div class="value" id="sumWeekly">$0</div></div>
-    <div class="card"><div class="label">Total Monthly</div><div class="value" id="sumMonthly">$0</div></div>
-    <div class="card total"><div class="label">Projected Yearly</div><div class="value" id="sumYearly">$0</div></div>
-  </div>
-
-  <!-- Add / edit form -->
-  <div class="panel">
-    <h2 id="formTitle">Add a driver</h2>
-    <form id="driverForm">
-      <div class="field">
-        <label for="name">Driver name</label>
-        <input id="name" type="text" placeholder="e.g. John Smith" required />
-      </div>
-      <div class="field">
-        <label for="years">Years of service</label>
-        <div class="dual">
-          <input id="years" type="number" min="0" step="1" placeholder="Yr" aria-label="Years of service" title="Years" />
-          <input id="months" type="number" min="0" max="11" step="1" placeholder="Mo" aria-label="Months of service" title="Months (0-11)" />
-        </div>
-      </div>
-      <div class="field">
-        <label for="daily">Daily pay / salary ($)</label>
-        <input id="daily" type="number" min="0" step="0.01" placeholder="0.00" required />
-      </div>
-      <div class="field">
-        <label for="days">Days / week</label>
-        <input id="days" type="number" min="0" max="7" step="0.5" placeholder="5" />
-      </div>
-      <div class="toolbar">
-        <button type="submit" class="btn-primary" id="submitBtn">Add driver</button>
-        <button type="button" class="btn-ghost" id="cancelBtn" style="display:none;">Cancel</button>
-      </div>
-    </form>
-    <p class="note">Weekly = daily pay × days/week. Yearly projection = weekly pay × 52 weeks at the current daily rate. Monthly = yearly ÷ 12. Data is saved in this browser on this computer.</p>
-  </div>
-
-  <!-- Table -->
-  <div class="panel">
-    <div class="table-head">
-      <h2>Drivers</h2>
-      <div class="toolbar">
-        <button type="button" class="btn-ghost" id="excelBtn">Download Excel</button>
-        <button type="button" class="btn-ghost" id="exportBtn">Export CSV</button>
-        <button type="button" class="btn-ghost" id="clearBtn">Clear all</button>
-      </div>
-    </div>
-    <div class="bulkbar" id="bulkbar">
-      <span class="count" id="bulkCount">0 selected</span>
-      <span class="spacer"></span>
-      <button type="button" class="btn-ghost" id="bulkExcelBtn">Export selected (Excel)</button>
-      <button type="button" class="btn-ghost" id="bulkCsvBtn">Export selected (CSV)</button>
-      <button type="button" class="btn-danger" id="bulkDelBtn">Delete selected</button>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th class="check"><input type="checkbox" id="selectAll" title="Select all" /></th>
-          <th>Name</th>
-          <th class="num">Service</th>
-          <th class="num">Daily pay</th>
-          <th class="num">Days / wk</th>
-          <th class="num">Weekly</th>
-          <th class="num">Monthly</th>
-          <th class="num">Yearly (proj.)</th>
-          <th class="num">Actions</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-      <tfoot id="tfoot"></tfoot>
-    </table>
-  </div>
+  <div class="board active" id="board-drivers"></div>
+  <div class="board" id="board-staff"></div>
 </div>
 
 <script>
-  const STORAGE_KEY = "driver_payroll_v1";
   const WEEKS_PER_YEAR = 52;
 
-  /** @type {Array<{id:string,name:string,years:number,rate:number,hours:number}>} */
-  let drivers = load();
-  let editingId = null;
-  const selected = new Set();
-
-  // --- persistence ---
-  function load() {
-    let list;
-    try { list = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
-    catch { return []; }
-    // migrate old hourly records (rate/hours) to daily salary, preserving weekly pay
+  // --- shared helpers ---
+  const money = n => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = n => (Number(n) || 0);
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function calc(d) {
+    const weekly = num(d.daily) * num(d.days);
+    const yearly = weekly * WEEKS_PER_YEAR;
+    return { weekly, monthly: yearly / 12, yearly };
+  }
+  function formatService(d) {
+    const y = num(d.years), m = num(d.months);
+    const parts = [];
+    if (y) parts.push(y + " yr");
+    if (m) parts.push(m + " mo");
+    return parts.length ? parts.join(" ") : "0";
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function migrate(list, hasTitle) {
     for (const d of list) {
+      // migrate old hourly records (rate/hours) to daily salary, preserving weekly pay
       if (d.daily === undefined && d.rate !== undefined) {
         const weekly = (Number(d.rate) || 0) * (Number(d.hours) || 0);
         d.days = 5;
@@ -239,267 +199,385 @@
         d.months = Math.round((y - d.years) * 12);
         if (d.months === 12) { d.years += 1; d.months = 0; }
       }
+      if (hasTitle && d.title === undefined) d.title = "";
     }
     return list;
   }
-  function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(drivers));
-  }
 
-  // --- helpers ---
-  const money = n => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const num = n => (Number(n) || 0);
-  function calc(d) {
-    const weekly = num(d.daily) * num(d.days);
-    const yearly = weekly * WEEKS_PER_YEAR;
-    return { weekly, monthly: yearly / 12, yearly };
-  }
-  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-  function formatService(d) {
-    const y = num(d.years), m = num(d.months);
-    const parts = [];
-    if (y) parts.push(y + " yr");
-    if (m) parts.push(m + " mo");
-    return parts.length ? parts.join(" ") : "0";
-  }
+  // --- payroll board factory ---
+  function createPayroll(cfg) {
+    const { mount, storageKey, formTitle, countLabel, hasTitle, fileBase, seed } = cfg;
+    const colspan = hasTitle ? 10 : 9;
 
-  // --- DOM refs ---
-  const form = document.getElementById("driverForm");
-  const tbody = document.getElementById("tbody");
-  const tfoot = document.getElementById("tfoot");
-  const els = {
-    name: document.getElementById("name"),
-    years: document.getElementById("years"),
-    months: document.getElementById("months"),
-    daily: document.getElementById("daily"),
-    days: document.getElementById("days"),
-    submitBtn: document.getElementById("submitBtn"),
-    cancelBtn: document.getElementById("cancelBtn"),
-    formTitle: document.getElementById("formTitle"),
-  };
+    let items = load();
+    let editingId = null;
+    const selected = new Set();
 
-  // --- render ---
-  function render() {
-    // drop selections for drivers that no longer exist
-    const ids = new Set(drivers.map(d => d.id));
-    for (const id of [...selected]) if (!ids.has(id)) selected.delete(id);
-
-    tbody.innerHTML = "";
-    let tW = 0, tM = 0, tY = 0;
-
-    if (drivers.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9" class="empty">No drivers yet. Add one above to start tracking pay.</td></tr>`;
-      tfoot.innerHTML = "";
-    } else {
-      for (const d of drivers) {
-        const c = calc(d);
-        tW += c.weekly; tM += c.monthly; tY += c.yearly;
-        const isSel = selected.has(d.id);
-        const tr = document.createElement("tr");
-        if (isSel) tr.className = "selected";
-        tr.innerHTML = `
-          <td class="check"><input type="checkbox" data-sel="${d.id}" ${isSel ? "checked" : ""} /></td>
-          <td>${escapeHtml(d.name)}</td>
-          <td class="num">${formatService(d)}</td>
-          <td class="num">${money(d.daily)}</td>
-          <td class="num">${num(d.days)}</td>
-          <td class="num">${money(c.weekly)}</td>
-          <td class="num">${money(c.monthly)}</td>
-          <td class="num">${money(c.yearly)}</td>
-          <td class="num"><div class="actions">
-            <button class="btn-edit" data-edit="${d.id}">Edit</button>
-            <button class="btn-danger" data-del="${d.id}">Delete</button>
-          </div></td>`;
-        tbody.appendChild(tr);
+    function load() {
+      let list = null;
+      try { list = JSON.parse(localStorage.getItem(storageKey)); } catch { list = null; }
+      if (list === null) {
+        list = (seed || []).map(s => ({ id: uid(), years: 0, months: 0, daily: 0, days: 5, title: "", ...s }));
+        if (seed && seed.length) localStorage.setItem(storageKey, JSON.stringify(list));
       }
-      tfoot.innerHTML = `
-        <tr>
-          <td></td>
-          <td>Totals (${drivers.length})</td>
-          <td></td><td></td><td></td>
-          <td class="num">${money(tW)}</td>
-          <td class="num">${money(tM)}</td>
-          <td class="num green">${money(tY)}</td>
-          <td></td>
-        </tr>`;
+      return migrate(list, hasTitle);
     }
+    function save() { localStorage.setItem(storageKey, JSON.stringify(items)); }
 
-    document.getElementById("sumCount").textContent = drivers.length;
-    document.getElementById("sumWeekly").textContent = money(tW);
-    document.getElementById("sumMonthly").textContent = money(tM);
-    document.getElementById("sumYearly").textContent = money(tY);
+    // --- markup ---
+    mount.innerHTML = `
+      <div class="cards">
+        <div class="card"><div class="label">${countLabel}</div><div class="value" data-sum="count">0</div></div>
+        <div class="card"><div class="label">Total Weekly</div><div class="value" data-sum="weekly">$0</div></div>
+        <div class="card"><div class="label">Total Monthly</div><div class="value" data-sum="monthly">$0</div></div>
+        <div class="card total"><div class="label">Projected Yearly</div><div class="value" data-sum="yearly">$0</div></div>
+      </div>
 
-    syncSelectionUI();
-  }
+      <div class="panel">
+        <h2 data-form-title>${formTitle.add}</h2>
+        <form data-form>
+          <div class="field name">
+            <label>Name</label>
+            <input class="f-name" type="text" placeholder="e.g. John Smith" required />
+          </div>
+          ${hasTitle ? `
+          <div class="field">
+            <label>Title / role</label>
+            <input class="f-title" type="text" placeholder="e.g. Operations manager" />
+          </div>` : ``}
+          <div class="field">
+            <label>Years of service</label>
+            <div class="dual">
+              <input class="f-years" type="number" min="0" step="1" placeholder="Yr" aria-label="Years of service" title="Years" />
+              <input class="f-months" type="number" min="0" max="11" step="1" placeholder="Mo" aria-label="Months of service" title="Months (0-11)" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Daily pay / salary ($)</label>
+            <input class="f-daily" type="number" min="0" step="0.01" placeholder="0.00" required />
+          </div>
+          <div class="field">
+            <label>Days / week</label>
+            <input class="f-days" type="number" min="0" max="7" step="0.5" placeholder="5" />
+          </div>
+          <div class="toolbar">
+            <button type="submit" class="btn-primary" data-submit>${formTitle.add}</button>
+            <button type="button" class="btn-ghost" data-cancel style="display:none;">Cancel</button>
+          </div>
+        </form>
+        <p class="note">Weekly = daily pay × days/week. Yearly projection = weekly pay × 52 weeks. Monthly = yearly ÷ 12. Data is saved in this browser on this computer.</p>
+      </div>
 
-  function syncSelectionUI() {
-    const n = selected.size;
-    document.getElementById("bulkbar").classList.toggle("show", n > 0);
-    document.getElementById("bulkCount").textContent = n + " selected";
-    const all = document.getElementById("selectAll");
-    all.checked = drivers.length > 0 && n === drivers.length;
-    all.indeterminate = n > 0 && n < drivers.length;
-  }
+      <div class="panel">
+        <div class="table-head">
+          <h2>${countLabel}</h2>
+          <div class="toolbar">
+            <button type="button" class="btn-ghost" data-excel>Download Excel</button>
+            <button type="button" class="btn-ghost" data-csv>Export CSV</button>
+            <button type="button" class="btn-ghost" data-clear>Clear all</button>
+          </div>
+        </div>
+        <div class="bulkbar" data-bulkbar>
+          <span class="count" data-bulk-count>0 selected</span>
+          <span class="spacer"></span>
+          <button type="button" class="btn-ghost" data-bulk-excel>Export selected (Excel)</button>
+          <button type="button" class="btn-ghost" data-bulk-csv>Export selected (CSV)</button>
+          <button type="button" class="btn-danger" data-bulk-del>Delete selected</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th class="check"><input type="checkbox" data-select-all title="Select all" /></th>
+              <th>Name</th>
+              ${hasTitle ? `<th>Title / role</th>` : ``}
+              <th class="num">Service</th>
+              <th class="num">Daily pay</th>
+              <th class="num">Days / wk</th>
+              <th class="num">Weekly</th>
+              <th class="num">Monthly</th>
+              <th class="num">Yearly (proj.)</th>
+              <th class="num">Actions</th>
+            </tr>
+          </thead>
+          <tbody data-tbody></tbody>
+          <tfoot data-tfoot></tfoot>
+        </table>
+      </div>`;
 
-  function selectedDrivers() {
-    return drivers.filter(d => selected.has(d.id));
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  }
-
-  // --- form submit (add or update) ---
-  form.addEventListener("submit", e => {
-    e.preventDefault();
-    const data = {
-      name: els.name.value.trim(),
-      years: Math.floor(num(els.years.value)) + Math.floor(num(els.months.value) / 12),
-      months: Math.floor(num(els.months.value)) % 12,
-      daily: num(els.daily.value),
-      days: els.days.value === "" ? 5 : num(els.days.value),
+    // --- scoped refs ---
+    const q = sel => mount.querySelector(sel);
+    const form = q("[data-form]");
+    const tbody = q("[data-tbody]");
+    const tfoot = q("[data-tfoot]");
+    const els = {
+      name: q(".f-name"),
+      title: hasTitle ? q(".f-title") : null,
+      years: q(".f-years"),
+      months: q(".f-months"),
+      daily: q(".f-daily"),
+      days: q(".f-days"),
+      submitBtn: q("[data-submit]"),
+      cancelBtn: q("[data-cancel]"),
+      formTitleEl: q("[data-form-title]"),
     };
-    if (!data.name || data.daily <= 0) return;
 
-    if (editingId) {
-      const d = drivers.find(x => x.id === editingId);
-      if (d) Object.assign(d, data);
-      exitEdit();
-    } else {
-      drivers.push({ id: uid(), ...data });
-    }
-    save();
-    render();
-    form.reset();
-    els.name.focus();
-  });
+    // --- render ---
+    function render() {
+      const ids = new Set(items.map(d => d.id));
+      for (const id of [...selected]) if (!ids.has(id)) selected.delete(id);
 
-  // --- edit / delete (event delegation) ---
-  tbody.addEventListener("click", e => {
-    const selId = e.target.getAttribute("data-sel");
-    if (selId) {
-      if (e.target.checked) selected.add(selId); else selected.delete(selId);
-      const row = e.target.closest("tr");
-      if (row) row.classList.toggle("selected", e.target.checked);
+      tbody.innerHTML = "";
+      let tW = 0, tM = 0, tY = 0;
+
+      if (items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty">No entries yet. Add one above to start tracking pay.</td></tr>`;
+        tfoot.innerHTML = "";
+      } else {
+        for (const d of items) {
+          const c = calc(d);
+          tW += c.weekly; tM += c.monthly; tY += c.yearly;
+          const isSel = selected.has(d.id);
+          const tr = document.createElement("tr");
+          if (isSel) tr.className = "selected";
+          tr.innerHTML = `
+            <td class="check"><input type="checkbox" data-sel="${d.id}" ${isSel ? "checked" : ""} /></td>
+            <td>${escapeHtml(d.name)}</td>
+            ${hasTitle ? `<td>${escapeHtml(d.title || "")}</td>` : ``}
+            <td class="num">${formatService(d)}</td>
+            <td class="num">${money(d.daily)}</td>
+            <td class="num">${num(d.days)}</td>
+            <td class="num">${money(c.weekly)}</td>
+            <td class="num">${money(c.monthly)}</td>
+            <td class="num">${money(c.yearly)}</td>
+            <td class="num"><div class="actions">
+              <button class="btn-edit" data-edit="${d.id}">Edit</button>
+              <button class="btn-danger" data-del="${d.id}">Delete</button>
+            </div></td>`;
+          tbody.appendChild(tr);
+        }
+        tfoot.innerHTML = `
+          <tr>
+            <td></td>
+            <td>Totals (${items.length})</td>
+            ${hasTitle ? `<td></td>` : ``}
+            <td></td><td></td><td></td>
+            <td class="num">${money(tW)}</td>
+            <td class="num">${money(tM)}</td>
+            <td class="num green">${money(tY)}</td>
+            <td></td>
+          </tr>`;
+      }
+
+      q('[data-sum="count"]').textContent = items.length;
+      q('[data-sum="weekly"]').textContent = money(tW);
+      q('[data-sum="monthly"]').textContent = money(tM);
+      q('[data-sum="yearly"]').textContent = money(tY);
+
       syncSelectionUI();
-      return;
     }
-    const editId = e.target.getAttribute("data-edit");
-    const delId = e.target.getAttribute("data-del");
-    if (editId) startEdit(editId);
-    if (delId) {
-      const d = drivers.find(x => x.id === delId);
-      if (d && confirm(`Delete ${d.name}?`)) {
-        drivers = drivers.filter(x => x.id !== delId);
-        if (editingId === delId) exitEdit();
+
+    function syncSelectionUI() {
+      const n = selected.size;
+      q("[data-bulkbar]").classList.toggle("show", n > 0);
+      q("[data-bulk-count]").textContent = n + " selected";
+      const all = q("[data-select-all]");
+      all.checked = items.length > 0 && n === items.length;
+      all.indeterminate = n > 0 && n < items.length;
+    }
+
+    function selectedItems() { return items.filter(d => selected.has(d.id)); }
+
+    // --- form submit (add or update) ---
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const data = {
+        name: els.name.value.trim(),
+        years: Math.floor(num(els.years.value)) + Math.floor(num(els.months.value) / 12),
+        months: Math.floor(num(els.months.value)) % 12,
+        daily: num(els.daily.value),
+        days: els.days.value === "" ? 5 : num(els.days.value),
+      };
+      if (hasTitle) data.title = els.title.value.trim();
+      if (!data.name || data.daily <= 0) return;
+
+      if (editingId) {
+        const d = items.find(x => x.id === editingId);
+        if (d) Object.assign(d, data);
+        exitEdit();
+      } else {
+        items.push({ id: uid(), ...data });
+      }
+      save();
+      render();
+      form.reset();
+      els.name.focus();
+    });
+
+    // --- row clicks: select / edit / delete ---
+    tbody.addEventListener("click", e => {
+      const selId = e.target.getAttribute("data-sel");
+      if (selId) {
+        if (e.target.checked) selected.add(selId); else selected.delete(selId);
+        const row = e.target.closest("tr");
+        if (row) row.classList.toggle("selected", e.target.checked);
+        syncSelectionUI();
+        return;
+      }
+      const editId = e.target.getAttribute("data-edit");
+      const delId = e.target.getAttribute("data-del");
+      if (editId) startEdit(editId);
+      if (delId) {
+        const d = items.find(x => x.id === delId);
+        if (d && confirm(`Delete ${d.name}?`)) {
+          items = items.filter(x => x.id !== delId);
+          if (editingId === delId) exitEdit();
+          save(); render();
+        }
+      }
+    });
+
+    function startEdit(id) {
+      const d = items.find(x => x.id === id);
+      if (!d) return;
+      editingId = id;
+      els.name.value = d.name;
+      if (hasTitle) els.title.value = d.title || "";
+      els.years.value = d.years;
+      els.months.value = d.months;
+      els.daily.value = d.daily;
+      els.days.value = d.days;
+      els.submitBtn.textContent = "Save changes";
+      els.cancelBtn.style.display = "inline-block";
+      els.formTitleEl.textContent = formTitle.edit;
+      els.name.focus();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    function exitEdit() {
+      editingId = null;
+      els.submitBtn.textContent = formTitle.add;
+      els.cancelBtn.style.display = "none";
+      els.formTitleEl.textContent = formTitle.add;
+      form.reset();
+    }
+    els.cancelBtn.addEventListener("click", exitEdit);
+
+    // --- clear all ---
+    q("[data-clear]").addEventListener("click", () => {
+      if (items.length && confirm("Remove ALL entries in this payroll? This cannot be undone.")) {
+        items = []; exitEdit(); save(); render();
+      }
+    });
+
+    // --- select all + bulk actions ---
+    q("[data-select-all]").addEventListener("change", e => {
+      selected.clear();
+      if (e.target.checked) for (const d of items) selected.add(d.id);
+      render();
+    });
+    q("[data-bulk-del]").addEventListener("click", () => {
+      const n = selected.size;
+      if (n && confirm(`Delete ${n} selected entr${n === 1 ? "y" : "ies"}? This cannot be undone.`)) {
+        items = items.filter(d => !selected.has(d.id));
+        if (editingId && selected.has(editingId)) exitEdit();
+        selected.clear();
         save(); render();
       }
+    });
+    q("[data-bulk-excel]").addEventListener("click", () => exportExcel(selectedItems(), `${fileBase}_selected.xlsx`));
+    q("[data-bulk-csv]").addEventListener("click", () => exportCSV(selectedItems(), `${fileBase}_selected.csv`));
+
+    // --- export CSV ---
+    function exportCSV(list, filename) {
+      if (!list.length) return;
+      const header = ["Name", ...(hasTitle ? ["Title / role"] : []), "Years of Service", "Daily Pay", "Days per Week", "Weekly", "Monthly", "Yearly (projected)"];
+      const rows = [header];
+      for (const d of list) {
+        const c = calc(d);
+        rows.push([d.name, ...(hasTitle ? [d.title || ""] : []), formatService(d), num(d.daily), num(d.days), c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
+      }
+      const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
     }
-  });
+    q("[data-csv]").addEventListener("click", () => exportCSV(items, `${fileBase}.csv`));
 
-  function startEdit(id) {
-    const d = drivers.find(x => x.id === id);
-    if (!d) return;
-    editingId = id;
-    els.name.value = d.name;
-    els.years.value = d.years;
-    els.months.value = d.months;
-    els.daily.value = d.daily;
-    els.days.value = d.days;
-    els.submitBtn.textContent = "Save changes";
-    els.cancelBtn.style.display = "inline-block";
-    els.formTitle.textContent = "Edit driver";
-    els.name.focus();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-  function exitEdit() {
-    editingId = null;
-    els.submitBtn.textContent = "Add driver";
-    els.cancelBtn.style.display = "none";
-    els.formTitle.textContent = "Add a driver";
-    form.reset();
-  }
-  els.cancelBtn.addEventListener("click", exitEdit);
-
-  // --- clear all ---
-  document.getElementById("clearBtn").addEventListener("click", () => {
-    if (drivers.length && confirm("Remove ALL drivers? This cannot be undone.")) {
-      drivers = []; exitEdit(); save(); render();
+    // --- export Excel (.xlsx) ---
+    function exportExcel(list, filename) {
+      if (!list.length) return;
+      if (typeof XLSX === "undefined") {
+        alert("Excel export needs an internet connection to load. Use the CSV export instead — it opens in Excel too.");
+        return;
+      }
+      const rows = list.map(d => {
+        const c = calc(d);
+        return {
+          "Name": d.name,
+          ...(hasTitle ? { "Title / role": d.title || "" } : {}),
+          "Years of Service": formatService(d),
+          "Daily Pay": num(d.daily),
+          "Days per Week": num(d.days),
+          "Weekly": +c.weekly.toFixed(2),
+          "Monthly": +c.monthly.toFixed(2),
+          "Yearly (projected)": +c.yearly.toFixed(2),
+        };
+      });
+      const t = list.reduce((a, d) => {
+        const c = calc(d); a.w += c.weekly; a.m += c.monthly; a.y += c.yearly; return a;
+      }, { w: 0, m: 0, y: 0 });
+      rows.push({
+        "Name": "TOTALS", ...(hasTitle ? { "Title / role": "" } : {}), "Years of Service": "", "Daily Pay": "", "Days per Week": "",
+        "Weekly": +t.w.toFixed(2), "Monthly": +t.m.toFixed(2), "Yearly (projected)": +t.y.toFixed(2),
+      });
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws["!cols"] = [{ wch: 20 }, ...(hasTitle ? [{ wch: 22 }] : []), { wch: 16 }, { wch: 13 }, { wch: 14 }, { wch: 13 }, { wch: 13 }, { wch: 18 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, countLabel.slice(0, 31));
+      XLSX.writeFile(wb, filename);
     }
-  });
+    q("[data-excel]").addEventListener("click", () => exportExcel(items, `${fileBase}.xlsx`));
 
-  // --- select all + bulk actions ---
-  document.getElementById("selectAll").addEventListener("change", e => {
-    selected.clear();
-    if (e.target.checked) for (const d of drivers) selected.add(d.id);
     render();
-  });
-  document.getElementById("bulkDelBtn").addEventListener("click", () => {
-    const n = selected.size;
-    if (n && confirm(`Delete ${n} selected driver(s)? This cannot be undone.`)) {
-      drivers = drivers.filter(d => !selected.has(d.id));
-      if (editingId && selected.has(editingId)) exitEdit();
-      selected.clear();
-      save(); render();
-    }
-  });
-  document.getElementById("bulkExcelBtn").addEventListener("click", () => exportExcel(selectedDrivers(), "selected_drivers.xlsx"));
-  document.getElementById("bulkCsvBtn").addEventListener("click", () => exportCSV(selectedDrivers(), "selected_drivers.csv"));
-
-  // --- export CSV ---
-  function exportCSV(list, filename) {
-    if (!list.length) return;
-    const rows = [["Name", "Years of Service", "Daily Pay", "Days per Week", "Weekly", "Monthly", "Yearly (projected)"]];
-    for (const d of list) {
-      const c = calc(d);
-      rows.push([d.name, formatService(d), num(d.daily), num(d.days), c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
-    }
-    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
   }
-  document.getElementById("exportBtn").addEventListener("click", () => exportCSV(drivers, "driver_payroll.csv"));
 
-  // --- export Excel (.xlsx) ---
-  function exportExcel(list, filename) {
-    if (!list.length) return;
-    if (typeof XLSX === "undefined") {
-      alert("Excel export needs an internet connection to load. Use the CSV export instead — it opens in Excel too.");
-      return;
-    }
-    const rows = list.map(d => {
-      const c = calc(d);
-      return {
-        "Name": d.name,
-        "Years of Service": formatService(d),
-        "Daily Pay": num(d.daily),
-        "Days per Week": num(d.days),
-        "Weekly": +c.weekly.toFixed(2),
-        "Monthly": +c.monthly.toFixed(2),
-        "Yearly (projected)": +c.yearly.toFixed(2),
-      };
-    });
-    // totals row
-    const t = list.reduce((a, d) => {
-      const c = calc(d); a.w += c.weekly; a.m += c.monthly; a.y += c.yearly; return a;
-    }, { w: 0, m: 0, y: 0 });
-    rows.push({
-      "Name": "TOTALS", "Years of Service": "", "Daily Pay": "", "Days per Week": "",
-      "Weekly": +t.w.toFixed(2), "Monthly": +t.m.toFixed(2), "Yearly (projected)": +t.y.toFixed(2),
-    });
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws["!cols"] = [{ wch: 20 }, { wch: 16 }, { wch: 13 }, { wch: 14 }, { wch: 13 }, { wch: 13 }, { wch: 18 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Driver Payroll");
-    XLSX.writeFile(wb, filename);
-  }
-  document.getElementById("excelBtn").addEventListener("click", () => exportExcel(drivers, "driver_payroll.xlsx"));
+  // --- drivers board (existing data preserved) ---
+  createPayroll({
+    mount: document.getElementById("board-drivers"),
+    storageKey: "driver_payroll_v1",
+    countLabel: "Drivers",
+    formTitle: { add: "Add a driver", edit: "Edit driver" },
+    hasTitle: false,
+    fileBase: "driver_payroll",
+  });
 
-  render();
+  // --- management & back office board (seeded roster) ---
+  createPayroll({
+    mount: document.getElementById("board-staff"),
+    storageKey: "staff_payroll_v1",
+    countLabel: "Management & Back Office",
+    formTitle: { add: "Add a staff member", edit: "Edit staff member" },
+    hasTitle: true,
+    fileBase: "management_backoffice_payroll",
+    seed: [
+      { name: "Camille Harris", title: "BC" },
+      { name: "Jabria Harper Garner", title: "Back office" },
+      { name: "Drew Fraser", title: "Back office tech support" },
+      { name: "Joe Chairez", title: "Operations manager" },
+      { name: "Luis Hernandez", title: "Operations manager" },
+    ],
+  });
+
+  // --- tab switching ---
+  const boards = { drivers: document.getElementById("board-drivers"), staff: document.getElementById("board-staff") };
+  document.getElementById("tabs").addEventListener("click", e => {
+    const name = e.target.getAttribute("data-tab");
+    if (!name) return;
+    for (const t of document.querySelectorAll(".tab")) t.classList.toggle("active", t.getAttribute("data-tab") === name);
+    for (const key in boards) boards[key].classList.toggle("active", key === name);
+  });
 </script>
 </body>
 </html>
