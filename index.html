@@ -35,6 +35,22 @@
   }
   header h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
   header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+
+  /* Page nav */
+  .nav { display: flex; gap: 8px; margin: 14px 0 0; }
+  .nav a {
+    text-decoration: none;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 7px 15px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .nav a:hover { color: var(--text); }
+  .nav a.active { background: var(--accent-strong); color: #04121d; border-color: var(--accent-strong); }
+
   .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
 
   /* Tabs */
@@ -158,6 +174,10 @@
 <header>
   <h1>💼 Payroll Bookkeeping</h1>
   <p>Separate payrolls for drivers and for management &amp; back office — weekly, monthly, and projected yearly pay.</p>
+  <nav class="nav">
+    <a href="index.html" class="active">🚚 Payroll</a>
+    <a href="expenses.html">🧾 Expenses</a>
+  </nav>
 </header>
 
 <div class="tabs" id="tabs">

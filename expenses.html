@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Expense Bookkeeping</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #273449;
+    --line: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-strong: #0ea5e9;
+    --green: #34d399;
+    --danger: #f87171;
+    --warn: #fbbf24;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    padding: 28px 24px 20px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #16233d, #0f172a);
+  }
+  header h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+
+  /* Page nav */
+  .nav { display: flex; gap: 8px; margin: 14px 0 0; }
+  .nav a {
+    text-decoration: none;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 7px 15px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .nav a:hover { color: var(--text); }
+  .nav a.active { background: var(--accent-strong); color: #04121d; border-color: var(--accent-strong); }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+  /* Summary cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 26px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+  }
+  .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
+  .card.total .value { color: var(--warn); }
+
+  /* Form */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 26px;
+  }
+  .panel h2 { margin: 0 0 16px; font-size: 16px; }
+  form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 5px; flex: 1 1 150px; }
+  .field.name { flex: 2 1 220px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  input, select {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 14px;
+    width: 100%;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  button {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.12s ease;
+  }
+  button:hover { filter: brightness(1.1); }
+  .btn-primary { background: var(--accent-strong); color: #04121d; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
+  .btn-edit { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
+
+  /* Segmented frequency toggle */
+  .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; align-self: start; }
+  .segmented button { background: var(--panel-2); color: var(--muted); border-radius: 0; padding: 9px 14px; font-size: 13px; font-weight: 600; }
+  .segmented button:hover { filter: none; color: var(--text); }
+  .segmented button + button { border-left: 1px solid var(--line); }
+  .segmented button.active { background: var(--accent-strong); color: #04121d; }
+
+  /* Table */
+  .table-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+  .table-head h2 { margin: 0; font-size: 16px; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: var(--panel-2); }
+  tfoot td { font-weight: 700; border-top: 2px solid var(--line); border-bottom: none; }
+  tfoot .warn { color: var(--warn); }
+  .empty { text-align: center; color: var(--muted); padding: 36px 10px; }
+  .actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); }
+
+  /* Checkboxes + bulk bar */
+  input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent-strong); cursor: pointer; }
+  th.check, td.check { width: 34px; text-align: center; }
+  .bulkbar {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--accent-strong);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+  }
+  .bulkbar.show { display: flex; }
+  .bulkbar .count { font-weight: 600; color: var(--accent); }
+  .bulkbar .spacer { flex: 1; }
+  tr.selected { background: rgba(14,165,233,0.12); }
+
+  .note { color: var(--muted); font-size: 12px; margin-top: 14px; }
+  @media (max-width: 720px) {
+    .actions { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧾 Expense Bookkeeping</h1>
+  <p>Track recurring business expenses — rent, maintenance, insurance, fuel and more — as weekly, monthly, and projected yearly cost.</p>
+  <nav class="nav">
+    <a href="index.html">🚚 Payroll</a>
+    <a href="expenses.html" class="active">🧾 Expenses</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <!-- Summary cards -->
+  <div class="cards">
+    <div class="card"><div class="label">Expenses</div><div class="value" data-sum="count">0</div></div>
+    <div class="card"><div class="label">Total Weekly</div><div class="value" data-sum="weekly">$0</div></div>
+    <div class="card"><div class="label">Total Monthly</div><div class="value" data-sum="monthly">$0</div></div>
+    <div class="card total"><div class="label">Projected Yearly</div><div class="value" data-sum="yearly">$0</div></div>
+  </div>
+
+  <!-- Add / edit form -->
+  <div class="panel">
+    <h2 data-form-title>Add an expense</h2>
+    <form data-form>
+      <div class="field name">
+        <label>Expense</label>
+        <input class="f-name" type="text" placeholder="e.g. Warehouse rent" required />
+      </div>
+      <div class="field">
+        <label>Category</label>
+        <select class="f-category"></select>
+      </div>
+      <div class="field">
+        <label>Frequency</label>
+        <div class="segmented" data-freq-toggle>
+          <button type="button" data-freq="weekly">Weekly</button>
+          <button type="button" data-freq="monthly">Monthly</button>
+          <button type="button" data-freq="yearly">Yearly</button>
+        </div>
+      </div>
+      <div class="field">
+        <label data-amount-label>Monthly amount ($)</label>
+        <input class="f-amount" type="number" min="0" step="0.01" placeholder="0.00" required />
+      </div>
+      <div class="toolbar">
+        <button type="submit" class="btn-primary" data-submit>Add expense</button>
+        <button type="button" class="btn-ghost" data-cancel style="display:none;">Cancel</button>
+      </div>
+    </form>
+    <p class="note">Pick how often the expense recurs — weekly, monthly, or yearly — and enter that amount. Weekly, monthly, and yearly totals are calculated from it. Data is saved in this browser on this computer.</p>
+  </div>
+
+  <!-- Table -->
+  <div class="panel">
+    <div class="table-head">
+      <h2>Expenses</h2>
+      <div class="toolbar">
+        <button type="button" class="btn-ghost" data-excel>Download Excel</button>
+        <button type="button" class="btn-ghost" data-csv>Export CSV</button>
+        <button type="button" class="btn-ghost" data-clear>Clear all</button>
+      </div>
+    </div>
+    <div class="bulkbar" data-bulkbar>
+      <span class="count" data-bulk-count>0 selected</span>
+      <span class="spacer"></span>
+      <button type="button" class="btn-ghost" data-bulk-excel>Export selected (Excel)</button>
+      <button type="button" class="btn-ghost" data-bulk-csv>Export selected (CSV)</button>
+      <button type="button" class="btn-danger" data-bulk-del>Delete selected</button>
+    </div>
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th class="check"><input type="checkbox" data-select-all title="Select all" /></th>
+          <th>Expense</th>
+          <th>Category</th>
+          <th>Frequency</th>
+          <th class="num">Amount</th>
+          <th class="num">Weekly</th>
+          <th class="num">Monthly</th>
+          <th class="num">Yearly (proj.)</th>
+          <th class="num">Actions</th>
+        </tr>
+      </thead>
+      <tbody data-tbody></tbody>
+      <tfoot data-tfoot></tfoot>
+    </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const STORAGE_KEY = "expenses_v1";
+  const WEEKS_PER_YEAR = 52;
+
+  const CATEGORIES = ["Rent", "Maintenance", "Utilities", "Insurance", "Fuel", "Equipment", "Supplies", "Payroll", "Other"];
+  const CAT_COLOR = {
+    Rent: "#a78bfa", Maintenance: "#fbbf24", Utilities: "#38bdf8", Insurance: "#60a5fa",
+    Fuel: "#34d399", Equipment: "#f472b6", Supplies: "#2dd4bf", Payroll: "#f87171", Other: "#94a3b8",
+  };
+  const freqLabel = f => (f === "weekly" ? "Weekly" : f === "yearly" ? "Yearly" : "Monthly");
+
+  // --- helpers ---
+  const money = n => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = n => (Number(n) || 0);
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function calc(e) {
+    const amt = num(e.amount);
+    let weekly, monthly, yearly;
+    if (e.freq === "weekly") { weekly = amt; yearly = amt * WEEKS_PER_YEAR; monthly = yearly / 12; }
+    else if (e.freq === "yearly") { yearly = amt; monthly = amt / 12; weekly = amt / WEEKS_PER_YEAR; }
+    else { monthly = amt; yearly = amt * 12; weekly = yearly / WEEKS_PER_YEAR; } // monthly (default)
+    return { weekly, monthly, yearly };
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function catPill(cat) {
+    const c = CAT_COLOR[cat] || CAT_COLOR.Other;
+    return `<span class="pill" style="color:${c};border-color:${c}66;background:${c}1a">${escapeHtml(cat)}</span>`;
+  }
+
+  // --- state ---
+  let expenses = load();
+  let editingId = null;
+  let formFreq = "monthly";
+  const selected = new Set();
+
+  function load() {
+    let list = null;
+    try { list = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { list = null; }
+    if (list === null) {
+      list = [
+        { name: "Rent", category: "Rent", freq: "monthly" },
+        { name: "Vehicle maintenance", category: "Maintenance", freq: "monthly" },
+        { name: "Insurance", category: "Insurance", freq: "monthly" },
+        { name: "Utilities", category: "Utilities", freq: "monthly" },
+        { name: "Fuel", category: "Fuel", freq: "weekly" },
+      ].map(s => ({ id: uid(), amount: 0, ...s }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    }
+    for (const e of list) {
+      if (e.freq === undefined) e.freq = "monthly";
+      if (e.category === undefined) e.category = "Other";
+      if (e.amount === undefined) e.amount = 0;
+    }
+    return list;
+  }
+  function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses)); }
+
+  // --- DOM refs ---
+  const root = document;
+  const q = sel => root.querySelector(sel);
+  const form = q("[data-form]");
+  const tbody = q("[data-tbody]");
+  const tfoot = q("[data-tfoot]");
+  const els = {
+    name: q(".f-name"),
+    category: q(".f-category"),
+    amount: q(".f-amount"),
+    submitBtn: q("[data-submit]"),
+    cancelBtn: q("[data-cancel]"),
+    formTitleEl: q("[data-form-title]"),
+  };
+
+  // populate category dropdown
+  els.category.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
+
+  // --- frequency toggle ---
+  function applyFreq(f) {
+    formFreq = f;
+    for (const btn of root.querySelectorAll("[data-freq-toggle] button"))
+      btn.classList.toggle("active", btn.getAttribute("data-freq") === f);
+    q("[data-amount-label]").textContent = freqLabel(f) + " amount ($)";
+  }
+  q("[data-freq-toggle]").addEventListener("click", e => {
+    const f = e.target.getAttribute("data-freq");
+    if (f) applyFreq(f);
+  });
+  applyFreq(formFreq);
+
+  // --- render ---
+  function render() {
+    const ids = new Set(expenses.map(e => e.id));
+    for (const id of [...selected]) if (!ids.has(id)) selected.delete(id);
+
+    tbody.innerHTML = "";
+    let tW = 0, tM = 0, tY = 0;
+
+    if (expenses.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" class="empty">No expenses yet. Add one above to start tracking cost.</td></tr>`;
+      tfoot.innerHTML = "";
+    } else {
+      for (const e of expenses) {
+        const c = calc(e);
+        tW += c.weekly; tM += c.monthly; tY += c.yearly;
+        const isSel = selected.has(e.id);
+        const tr = document.createElement("tr");
+        if (isSel) tr.className = "selected";
+        tr.innerHTML = `
+          <td class="check"><input type="checkbox" data-sel="${e.id}" ${isSel ? "checked" : ""} /></td>
+          <td>${escapeHtml(e.name)}</td>
+          <td>${catPill(e.category)}</td>
+          <td>${freqLabel(e.freq)}</td>
+          <td class="num">${money(e.amount)}</td>
+          <td class="num">${money(c.weekly)}</td>
+          <td class="num">${money(c.monthly)}</td>
+          <td class="num">${money(c.yearly)}</td>
+          <td class="num"><div class="actions">
+            <button class="btn-edit" data-edit="${e.id}">Edit</button>
+            <button class="btn-danger" data-del="${e.id}">Delete</button>
+          </div></td>`;
+        tbody.appendChild(tr);
+      }
+      tfoot.innerHTML = `
+        <tr>
+          <td></td>
+          <td>Totals (${expenses.length})</td>
+          <td></td><td></td><td></td>
+          <td class="num">${money(tW)}</td>
+          <td class="num">${money(tM)}</td>
+          <td class="num warn">${money(tY)}</td>
+          <td></td>
+        </tr>`;
+    }
+
+    q('[data-sum="count"]').textContent = expenses.length;
+    q('[data-sum="weekly"]').textContent = money(tW);
+    q('[data-sum="monthly"]').textContent = money(tM);
+    q('[data-sum="yearly"]').textContent = money(tY);
+
+    syncSelectionUI();
+  }
+
+  function syncSelectionUI() {
+    const n = selected.size;
+    q("[data-bulkbar]").classList.toggle("show", n > 0);
+    q("[data-bulk-count]").textContent = n + " selected";
+    const all = q("[data-select-all]");
+    all.checked = expenses.length > 0 && n === expenses.length;
+    all.indeterminate = n > 0 && n < expenses.length;
+  }
+
+  function selectedExpenses() { return expenses.filter(e => selected.has(e.id)); }
+
+  // --- form submit (add or update) ---
+  form.addEventListener("submit", ev => {
+    ev.preventDefault();
+    const data = {
+      name: els.name.value.trim(),
+      category: els.category.value,
+      freq: formFreq,
+      amount: num(els.amount.value),
+    };
+    if (!data.name || data.amount <= 0) return;
+
+    if (editingId) {
+      const e = expenses.find(x => x.id === editingId);
+      if (e) Object.assign(e, data);
+      exitEdit();
+    } else {
+      expenses.push({ id: uid(), ...data });
+    }
+    save();
+    render();
+    form.reset();
+    applyFreq("monthly");
+    els.name.focus();
+  });
+
+  // --- row clicks: select / edit / delete ---
+  tbody.addEventListener("click", ev => {
+    const selId = ev.target.getAttribute("data-sel");
+    if (selId) {
+      if (ev.target.checked) selected.add(selId); else selected.delete(selId);
+      const row = ev.target.closest("tr");
+      if (row) row.classList.toggle("selected", ev.target.checked);
+      syncSelectionUI();
+      return;
+    }
+    const editId = ev.target.getAttribute("data-edit");
+    const delId = ev.target.getAttribute("data-del");
+    if (editId) startEdit(editId);
+    if (delId) {
+      const e = expenses.find(x => x.id === delId);
+      if (e && confirm(`Delete ${e.name}?`)) {
+        expenses = expenses.filter(x => x.id !== delId);
+        if (editingId === delId) exitEdit();
+        save(); render();
+      }
+    }
+  });
+
+  function startEdit(id) {
+    const e = expenses.find(x => x.id === id);
+    if (!e) return;
+    editingId = id;
+    els.name.value = e.name;
+    els.category.value = e.category;
+    applyFreq(e.freq || "monthly");
+    els.amount.value = e.amount;
+    els.submitBtn.textContent = "Save changes";
+    els.cancelBtn.style.display = "inline-block";
+    els.formTitleEl.textContent = "Edit expense";
+    els.name.focus();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function exitEdit() {
+    editingId = null;
+    els.submitBtn.textContent = "Add expense";
+    els.cancelBtn.style.display = "none";
+    els.formTitleEl.textContent = "Add an expense";
+    form.reset();
+    applyFreq("monthly");
+  }
+  els.cancelBtn.addEventListener("click", exitEdit);
+
+  // --- clear all ---
+  q("[data-clear]").addEventListener("click", () => {
+    if (expenses.length && confirm("Remove ALL expenses? This cannot be undone.")) {
+      expenses = []; exitEdit(); save(); render();
+    }
+  });
+
+  // --- select all + bulk actions ---
+  q("[data-select-all]").addEventListener("change", ev => {
+    selected.clear();
+    if (ev.target.checked) for (const e of expenses) selected.add(e.id);
+    render();
+  });
+  q("[data-bulk-del]").addEventListener("click", () => {
+    const n = selected.size;
+    if (n && confirm(`Delete ${n} selected expense${n === 1 ? "" : "s"}? This cannot be undone.`)) {
+      expenses = expenses.filter(e => !selected.has(e.id));
+      if (editingId && selected.has(editingId)) exitEdit();
+      selected.clear();
+      save(); render();
+    }
+  });
+  q("[data-bulk-excel]").addEventListener("click", () => exportExcel(selectedExpenses(), "expenses_selected.xlsx"));
+  q("[data-bulk-csv]").addEventListener("click", () => exportCSV(selectedExpenses(), "expenses_selected.csv"));
+
+  // --- export CSV ---
+  function exportCSV(list, filename) {
+    if (!list.length) return;
+    const rows = [["Expense", "Category", "Frequency", "Amount", "Weekly", "Monthly", "Yearly (projected)"]];
+    for (const e of list) {
+      const c = calc(e);
+      rows.push([e.name, e.category, freqLabel(e.freq), num(e.amount), c.weekly.toFixed(2), c.monthly.toFixed(2), c.yearly.toFixed(2)]);
+    }
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  q("[data-csv]").addEventListener("click", () => exportCSV(expenses, "expenses.csv"));
+
+  // --- export Excel (.xlsx) ---
+  function exportExcel(list, filename) {
+    if (!list.length) return;
+    if (typeof XLSX === "undefined") {
+      alert("Excel export needs an internet connection to load. Use the CSV export instead — it opens in Excel too.");
+      return;
+    }
+    const rows = list.map(e => {
+      const c = calc(e);
+      return {
+        "Expense": e.name,
+        "Category": e.category,
+        "Frequency": freqLabel(e.freq),
+        "Amount": num(e.amount),
+        "Weekly": +c.weekly.toFixed(2),
+        "Monthly": +c.monthly.toFixed(2),
+        "Yearly (projected)": +c.yearly.toFixed(2),
+      };
+    });
+    const t = list.reduce((a, e) => {
+      const c = calc(e); a.w += c.weekly; a.m += c.monthly; a.y += c.yearly; return a;
+    }, { w: 0, m: 0, y: 0 });
+    rows.push({
+      "Expense": "TOTALS", "Category": "", "Frequency": "", "Amount": "",
+      "Weekly": +t.w.toFixed(2), "Monthly": +t.m.toFixed(2), "Yearly (projected)": +t.y.toFixed(2),
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [{ wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 18 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Expenses");
+    XLSX.writeFile(wb, filename);
+  }
+  q("[data-excel]").addEventListener("click", () => exportExcel(expenses, "expenses.xlsx"));
+
+  render();
+</script>
+</body>
+</html>
