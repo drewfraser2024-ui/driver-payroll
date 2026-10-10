@@ -145,6 +145,32 @@
   tr.selected { background: rgba(14,165,233,0.12); }
 
   .note { color: var(--muted); font-size: 12px; margin-top: 14px; }
+
+  /* Send book + drag-and-drop */
+  .dropzone {
+    border: 2px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 22px;
+    color: var(--muted);
+    font-size: 13px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--panel);
+    transition: border-color .12s ease, background .12s ease;
+  }
+  .dropzone.drag { border-color: var(--accent-strong); background: var(--panel-2); color: var(--text); }
+  .dropzone .dz-icon { font-size: 22px; }
+  .dropzone strong { color: var(--text); }
+  .dropzone .spacer { flex: 1; }
+  .btn-send { background: var(--accent-strong); color: #04121d; }
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--accent-strong);
+    padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 50;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s ease;
+  }
+  .toast.show { opacity: 1; }
+
   @media (max-width: 720px) {
     .actions { flex-direction: column; }
   }
@@ -167,6 +193,18 @@
     <div class="card"><div class="label">Total Weekly</div><div class="value" data-sum="weekly">$0</div></div>
     <div class="card"><div class="label">Total Monthly</div><div class="value" data-sum="monthly">$0</div></div>
     <div class="card total"><div class="label">Projected Yearly</div><div class="value" data-sum="yearly">$0</div></div>
+  </div>
+
+  <!-- Send / import the expense book -->
+  <div class="dropzone" data-dropzone>
+    <span class="dz-icon">📥</span>
+    <div>
+      <strong>Drag &amp; drop an expense book file here</strong> to load it — or use <em>Send book</em> below to export the full
+      book as a file you can send to another employee for bookkeeping.
+    </div>
+    <span class="spacer"></span>
+    <button type="button" class="btn-ghost" data-choose-file>Choose file…</button>
+    <input type="file" accept=".json,application/json" hidden data-file-input />
   </div>
 
   <!-- Add / edit form -->
@@ -206,6 +244,7 @@
     <div class="table-head">
       <h2>Expenses</h2>
       <div class="toolbar">
+        <button type="button" class="btn-send" data-send-book>📤 Send book</button>
         <button type="button" class="btn-ghost" data-excel>Download Excel</button>
         <button type="button" class="btn-ghost" data-csv>Export CSV</button>
         <button type="button" class="btn-ghost" data-clear>Clear all</button>
@@ -542,6 +581,69 @@
     XLSX.writeFile(wb, filename);
   }
   q("[data-excel]").addEventListener("click", () => exportExcel(expenses, "expenses.xlsx"));
+
+  // --- send book + drag-drop import ---
+  let toastTimer = null;
+  function toast(msg) {
+    let t = document.getElementById("__toast");
+    if (!t) { t = document.createElement("div"); t.id = "__toast"; t.className = "toast"; document.body.appendChild(t); }
+    t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 3400);
+  }
+  function download(text, filename, mime) {
+    const blob = new Blob([text], { type: mime || "application/octet-stream" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function sendBook() {
+    if (!expenses.length) { toast("No expenses to send yet — add some first."); return; }
+    const obj = { type: "expenses-data", v: 1, app: "CRYXX Expense Bookkeeping", exportedAt: new Date().toISOString(), expenses };
+    download(JSON.stringify(obj, null, 2), "expense_book.json", "application/json");
+    toast("Expense book exported — send the file to your bookkeeper.");
+  }
+  q("[data-send-book]").addEventListener("click", sendBook);
+
+  function applyImport(obj) {
+    if (!obj || typeof obj !== "object") { toast("Unrecognized file."); return; }
+    if (obj.type === "payroll-data" || obj.type === "payroll-ack") {
+      toast("That's a payroll file — open it on the Payroll page.");
+      return;
+    }
+    const list = (obj.type === "expenses-data" && Array.isArray(obj.expenses)) ? obj.expenses
+               : (Array.isArray(obj) ? obj : null);
+    if (!list) { toast("Unrecognized file — expected an expense book file."); return; }
+    if (!confirm("Load " + list.length + " expense" + (list.length === 1 ? "" : "s") + " from this file? This replaces your current expense book.")) return;
+    expenses = list.map(e => ({
+      id: e.id || uid(),
+      name: e.name || "",
+      category: e.category || "Other",
+      freq: e.freq || "monthly",
+      amount: num(e.amount),
+    }));
+    exitEdit(); save(); render();
+    toast("Loaded " + expenses.length + " expenses from the file.");
+  }
+  function importFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => { try { applyImport(JSON.parse(reader.result)); } catch (e) { toast("Could not read that file — it isn't valid JSON."); } };
+    reader.readAsText(file);
+  }
+
+  const dz = q("[data-dropzone]");
+  const fileInput = q("[data-file-input]");
+  ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("drag"); }));
+  ["dragleave", "dragend"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("drag"); }));
+  dz.addEventListener("drop", e => {
+    e.preventDefault(); dz.classList.remove("drag");
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) importFile(f);
+  });
+  q("[data-choose-file]").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", e => { const f = e.target.files[0]; if (f) importFile(f); fileInput.value = ""; });
 
   render();
 </script>

@@ -165,6 +165,35 @@
   tr.selected { background: rgba(14,165,233,0.12); }
 
   .note { color: var(--muted); font-size: 12px; margin-top: 14px; }
+
+  /* Send / acknowledge + drag-and-drop */
+  .dropzone {
+    border: 2px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 22px;
+    color: var(--muted);
+    font-size: 13px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--panel);
+    transition: border-color .12s ease, background .12s ease;
+  }
+  .dropzone.drag { border-color: var(--accent-strong); background: var(--panel-2); color: var(--text); }
+  .dropzone .dz-icon { font-size: 22px; }
+  .dropzone strong { color: var(--text); }
+  .dropzone .spacer { flex: 1; }
+  .badge-ack { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; vertical-align: middle; }
+  .badge-ack.ok { color: var(--green); background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.40); }
+  .badge-ack.sent { color: var(--warn); background: rgba(251,191,36,.10); border: 1px solid rgba(251,191,36,.35); }
+  .btn-send { background: transparent; color: var(--green); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--accent-strong);
+    padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 50;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s ease;
+  }
+  .toast.show { opacity: 1; }
+
   @media (max-width: 720px) {
     .actions { flex-direction: column; }
   }
@@ -314,6 +343,17 @@
         <div class="card total"><div class="label">Projected Yearly</div><div class="value" data-sum="yearly">$0</div></div>
       </div>
 
+      <div class="dropzone" data-dropzone>
+        <span class="dz-icon">📥</span>
+        <div>
+          <strong>Drag &amp; drop a file here</strong> — drop an employee's <em>acknowledgment</em> file to mark them accepted,
+          or a <em>backup</em> file to restore this roster.
+        </div>
+        <span class="spacer"></span>
+        <button type="button" class="btn-ghost" data-choose-file>Choose file…</button>
+        <input type="file" accept=".json,application/json" hidden data-file-input />
+      </div>
+
       <div class="panel">
         <h2 data-form-title>${formTitle.add}</h2>
         <form data-form>
@@ -348,6 +388,7 @@
           <div class="toolbar">
             <button type="button" class="btn-ghost" data-excel>Download Excel</button>
             <button type="button" class="btn-ghost" data-csv>Export CSV</button>
+            <button type="button" class="btn-ghost" data-backup>Backup file</button>
             <button type="button" class="btn-ghost" data-clear>Clear all</button>
           </div>
         </div>
@@ -439,7 +480,7 @@
           if (isSel) tr.className = "selected";
           tr.innerHTML = `
             <td class="check"><input type="checkbox" data-sel="${d.id}" ${isSel ? "checked" : ""} /></td>
-            <td>${escapeHtml(d.name)}</td>
+            <td>${escapeHtml(d.name)}${ackBadge(d)}</td>
             ${hasTitle ? `<td>${escapeHtml(d.title || "")}</td>` : ``}
             <td class="num">${formatService(d)}</td>
             ${payCells(d)}
@@ -447,6 +488,7 @@
             <td class="num">${money(c.monthly)}</td>
             <td class="num">${money(c.yearly)}</td>
             <td class="num"><div class="actions">
+              <button class="btn-send" data-send="${d.id}">Send</button>
               <button class="btn-edit" data-edit="${d.id}">Edit</button>
               <button class="btn-danger" data-del="${d.id}">Delete</button>
             </div></td>`;
@@ -525,6 +567,12 @@
         const row = e.target.closest("tr");
         if (row) row.classList.toggle("selected", e.target.checked);
         syncSelectionUI();
+        return;
+      }
+      const sendId = e.target.getAttribute("data-send");
+      if (sendId) {
+        const d = items.find(x => x.id === sendId);
+        if (d) sendPacket(d);
         return;
       }
       const editId = e.target.getAttribute("data-edit");
@@ -654,6 +702,208 @@
       XLSX.writeFile(wb, filename);
     }
     q("[data-excel]").addEventListener("click", () => exportExcel(items, `${fileBase}.xlsx`));
+
+    // --- send / acknowledge / drag-drop ---
+    let toastTimer = null;
+    function toast(msg) {
+      let t = document.getElementById("__toast");
+      if (!t) { t = document.createElement("div"); t.id = "__toast"; t.className = "toast"; document.body.appendChild(t); }
+      t.textContent = msg; t.classList.add("show");
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 3400);
+    }
+    function download(text, filename, mime) {
+      const blob = new Blob([text], { type: mime || "application/octet-stream" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+    const safeName = s => String(s).replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "employee";
+
+    function ackBadge(d) {
+      if (d.ack && d.ack.accepted) {
+        const dt = d.ack.at ? new Date(d.ack.at).toLocaleDateString() : "";
+        return `<span class="badge-ack ok" title="Accepted by ${escapeHtml(d.ack.by || d.name)} ${escapeHtml(dt)}">✓ Accepted${dt ? " " + escapeHtml(dt) : ""}</span>`;
+      }
+      if (d.sent) {
+        const dt = new Date(d.sent).toLocaleDateString();
+        return `<span class="badge-ack sent" title="Packet sent ${escapeHtml(dt)}">Sent ${escapeHtml(dt)}</span>`;
+      }
+      return "";
+    }
+
+    function buildPacket(d) {
+      const c = calc(d);
+      const payLines = salary
+        ? [["Pay basis", basisLabel(d.basis)], ["Rate", money(d.amount)]]
+        : [["Daily pay", money(d.daily)], ["Days / week", String(num(d.days))]];
+      const packet = {
+        v: 1, company: "CRYXX Solutions and Associates Inc.",
+        board: storageKey, boardLabel: countLabel,
+        id: d.id, name: d.name, title: d.title || "", service: formatService(d),
+        weekly: money(c.weekly), monthly: money(c.monthly), yearly: money(c.yearly),
+        issuedAt: new Date().toISOString(),
+      };
+      const esc = escapeHtml;
+      const payRows = payLines.map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right">${esc(v)}</td></tr>`).join("");
+      const issued = new Date(packet.issuedAt).toLocaleString();
+      const titleRow = d.title ? `<div class="sub">${esc(d.title)}</div>` : "";
+      return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Pay Statement — ${esc(d.name)}</title>
+<style>
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f1f5f9;color:#0f172a;line-height:1.5;}
+  .sheet{max-width:640px;margin:28px auto;background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.08);}
+  .hd{background:#0f172a;color:#fff;padding:22px 26px;}
+  .hd h1{margin:0;font-size:20px;}
+  .hd .co{color:#38bdf8;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin-top:4px;}
+  .bd{padding:24px 26px;}
+  .who{font-size:20px;font-weight:700;margin:0;}
+  .sub{color:#64748b;font-size:14px;margin-top:2px;}
+  .meta{color:#64748b;font-size:12px;margin-top:6px;}
+  table{width:100%;border-collapse:collapse;margin-top:18px;}
+  td{padding:9px 4px;border-bottom:1px solid #eef2f7;font-size:14px;}
+  .tot td{font-weight:700;border-top:2px solid #e2e8f0;border-bottom:none;}
+  .tot .g{color:#059669;}
+  .ack{margin:22px 26px;padding:18px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;}
+  .ack h3{margin:0 0 8px;font-size:15px;}
+  .ack p{margin:0 0 12px;font-size:13px;color:#475569;}
+  .ack input{padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;width:100%;max-width:320px;}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;}
+  button{border:none;border-radius:8px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;}
+  .accept{background:#059669;color:#fff;}
+  .print{background:#fff;color:#0f172a;border:1px solid #cbd5e1;}
+  #ackStatus{margin-top:12px;font-size:13px;color:#059669;}
+  .ft{padding:14px 26px;color:#94a3b8;font-size:11px;border-top:1px solid #eef2f7;}
+  @media print{ body{background:#fff;} .sheet{box-shadow:none;border:none;margin:0;} .ack .row{display:none;} }
+</style></head>
+<body>
+  <div class="sheet">
+    <div class="hd"><h1>Pay Statement</h1><div class="co">${esc(packet.company)}</div></div>
+    <div class="bd">
+      <p class="who">${esc(d.name)}</p>
+      ${titleRow}
+      <div class="meta">${esc(packet.boardLabel)} &middot; Service: ${esc(packet.service)} &middot; Issued ${esc(issued)}</div>
+      <table>
+        ${payRows}
+        <tr><td>Weekly pay</td><td style="text-align:right">${esc(packet.weekly)}</td></tr>
+        <tr><td>Monthly pay</td><td style="text-align:right">${esc(packet.monthly)}</td></tr>
+        <tr class="tot"><td>Yearly (projected)</td><td style="text-align:right" class="g">${esc(packet.yearly)}</td></tr>
+      </table>
+    </div>
+    <div class="ack">
+      <h3>Acknowledgment</h3>
+      <p>Please confirm you have received and reviewed this pay statement. Type your name and click Accept &mdash; a small acknowledgment file will download that you send back to your employer.</p>
+      <input id="ackName" type="text" value="${esc(d.name)}" placeholder="Type your full name" />
+      <div class="row">
+        <button id="acceptBtn" class="accept">&#10003; Accept &amp; Acknowledge</button>
+        <button id="printBtn" class="print">Print / Save PDF</button>
+      </div>
+      <div id="ackStatus"></div>
+    </div>
+    <div class="ft">Generated for ${esc(d.name)} by ${esc(packet.company)}. Ref: ${esc(packet.id)}.</div>
+  </div>
+<script>
+(function(){
+  var P = ${JSON.stringify(packet)};
+  var KEY = "cryxx_ack_" + P.id;
+  var btn = document.getElementById("acceptBtn");
+  var nameIn = document.getElementById("ackName");
+  var statusEl = document.getElementById("ackStatus");
+  function fmtDate(iso){ try { return new Date(iso).toLocaleString(); } catch(e){ return iso; } }
+  function saved(){ try { return JSON.parse(localStorage.getItem(KEY)); } catch(e){ return null; } }
+  function safe(s){ return String(s).replace(/[^a-z0-9]+/gi,"_").replace(/^_+|_+\$/g,"") || "employee"; }
+  function makeReceipt(who, when){
+    return { type:"payroll-ack", v:1, id:P.id, board:P.board, boardLabel:P.boardLabel, name:P.name,
+             acceptedBy:who, acceptedAt:when, summary:{ weekly:P.weekly, monthly:P.monthly, yearly:P.yearly } };
+  }
+  function dl(obj, fname){
+    var blob = new Blob([JSON.stringify(obj,null,2)], {type:"application/json"});
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fname; a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function showAccepted(rec){
+    statusEl.innerHTML = '&#10003; Accepted by <b>' + (rec.acceptedBy || rec.name) + '</b> on ' + fmtDate(rec.acceptedAt) +
+      '. <a href="#" id="redl">Download acknowledgment again</a> and send it back to your employer.';
+    btn.disabled = true; btn.textContent = "Accepted ✓"; nameIn.disabled = true;
+    var r = document.getElementById("redl");
+    if (r) r.addEventListener("click", function(ev){ ev.preventDefault(); dl(rec, "acknowledgment_" + safe(P.name) + ".json"); });
+  }
+  var existing = saved();
+  if (existing) showAccepted(existing);
+  btn.addEventListener("click", function(){
+    var who = (nameIn.value || "").trim() || P.name;
+    var rec = makeReceipt(who, new Date().toISOString());
+    try { localStorage.setItem(KEY, JSON.stringify(rec)); } catch(e){}
+    dl(rec, "acknowledgment_" + safe(P.name) + ".json");
+    showAccepted(rec);
+  });
+  document.getElementById("printBtn").addEventListener("click", function(){ window.print(); });
+})();
+<\/script>
+</body></html>`;
+    }
+
+    function sendPacket(d) {
+      download(buildPacket(d), safeName(d.name) + "_pay_packet.html", "text/html");
+      if (!d.sent) d.sent = new Date().toISOString();
+      save(); render();
+      toast("Pay packet for " + d.name + " downloaded — send it to them.");
+    }
+
+    function exportBackup() {
+      const obj = { type: "payroll-data", v: 1, board: storageKey, boardLabel: countLabel, exportedAt: new Date().toISOString(), items };
+      download(JSON.stringify(obj, null, 2), fileBase + "_backup.json", "application/json");
+      toast("Backup file for " + countLabel + " downloaded.");
+    }
+    q("[data-backup]").addEventListener("click", exportBackup);
+
+    function applyImport(obj) {
+      if (!obj || typeof obj !== "object") { toast("Unrecognized file."); return; }
+      if (obj.type === "payroll-ack") {
+        if (obj.board && obj.board !== storageKey) {
+          toast("That acknowledgment is for the " + (obj.boardLabel || "other") + " payroll — switch to that tab and drop it there.");
+          return;
+        }
+        const d = items.find(x => x.id === obj.id);
+        if (!d) { toast("No matching employee found for that acknowledgment (they may have been removed)."); return; }
+        d.ack = { accepted: true, by: obj.acceptedBy || d.name, at: obj.acceptedAt || new Date().toISOString() };
+        save(); render();
+        toast("✓ " + d.name + " marked as accepted.");
+        return;
+      }
+      if (obj.type === "payroll-data" && Array.isArray(obj.items)) {
+        const label = obj.boardLabel || "another payroll";
+        if (obj.board && obj.board !== storageKey &&
+            !confirm("This backup is from " + label + ". Import it into " + countLabel + " anyway? This replaces the current list.")) return;
+        if (!confirm("Restore " + obj.items.length + " entr" + (obj.items.length === 1 ? "y" : "ies") + " into " + countLabel + "? This replaces the current list.")) return;
+        items = obj.items.map(x => ({ id: x.id || uid(), ...x }));
+        migrate(items, hasTitle);
+        exitEdit(); save(); render();
+        toast("Restored " + items.length + " entries into " + countLabel + ".");
+        return;
+      }
+      toast("Unrecognized file — expected an acknowledgment or a backup file.");
+    }
+    function importFile(file) {
+      const reader = new FileReader();
+      reader.onload = () => { try { applyImport(JSON.parse(reader.result)); } catch (e) { toast("Could not read that file — it isn't valid JSON."); } };
+      reader.readAsText(file);
+    }
+
+    const dz = q("[data-dropzone]");
+    const fileInput = q("[data-file-input]");
+    ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("drag"); }));
+    ["dragleave", "dragend"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("drag"); }));
+    dz.addEventListener("drop", e => {
+      e.preventDefault(); dz.classList.remove("drag");
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) importFile(f);
+    });
+    q("[data-choose-file]").addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", e => { const f = e.target.files[0]; if (f) importFile(f); fileInput.value = ""; });
 
     render();
   }
